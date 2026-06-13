@@ -4,3 +4,6 @@ export { default as ClubPage } from './ClubPage';
 export { default as RegistrationPage } from './RegistrationPage';
 export { default as ProfilePage } from './ProfilePage';
 export { default as LoginPage } from './LoginPage';
+export { default as ActivitiesListPage } from './ActivitiesListPage';
+export { default as ClubsListPage } from './ClubsListPage';
+export { default as NotificationsPage } from './NotificationsPage';

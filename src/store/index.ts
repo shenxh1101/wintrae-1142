@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { User, Activity, Club, Registration, Notification } from '../types';
+import { User, Activity, Club, Registration, Notification, LeaveRequest, Waitlist, Review } from '../types';
 import { mockUsers, defaultUser } from '../data/users';
 import { mockActivities } from '../data/activities';
 import { mockClubs } from '../data/clubs';
-import { mockRegistrations } from '../data/registrations';
+import { mockRegistrations, mockWaitlists, mockReviews } from '../data/registrations';
 
 interface AppState {
   user: User | null;
@@ -14,6 +14,9 @@ interface AppState {
   collectedActivities: number[];
   followedClubs: number[];
   notifications: Notification[];
+  leaveRequests: LeaveRequest[];
+  waitlists: Waitlist[];
+  reviews: Review[];
 
   setUser: (user: User | null) => void;
   login: (studentId: string) => boolean;
@@ -28,7 +31,14 @@ interface AppState {
   checkin: (activityId: number, userId: number) => { success: boolean; message: string };
 
   submitLeaveRequest: (activityId: number, reason: string) => void;
-  approveLeaveRequest: (registrationId: number) => void;
+  approveLeaveRequest: (leaveRequestId: number) => void;
+  rejectLeaveRequest: (leaveRequestId: number) => void;
+
+  getWaitlistsByActivity: (activityId: number) => Waitlist[];
+  addToWaitlist: (activityId: number, userId: number) => number;
+
+  addReview: (activityId: number, rating: number, comment: string) => void;
+  getReviewsByActivity: (activityId: number) => Review[];
 
   addNotification: (notification: Omit<Notification, 'id' | 'createdAt'>) => void;
   markNotificationRead: (notificationId: number) => void;
@@ -36,6 +46,7 @@ interface AppState {
   getUserRegistrations: () => Registration[];
   getActivityRegistrations: (activityId: number) => Registration[];
   getClubActivities: (clubId: number) => Activity[];
+  getUserLeaveRequests: () => LeaveRequest[];
 }
 
 export const useStore = create<AppState>()(
@@ -67,6 +78,9 @@ export const useStore = create<AppState>()(
           createdAt: '2026-06-13T10:00:00Z',
         },
       ],
+      leaveRequests: [],
+      waitlists: [],
+      reviews: mockReviews,
 
       setUser: (user) => set({ user }),
 
@@ -102,7 +116,7 @@ export const useStore = create<AppState>()(
       },
 
       registerActivity: (activityId, formData) => {
-        const { user, registrations, activities } = get();
+        const { user, registrations, activities, waitlists, notifications } = get();
         if (!user) {
           return { success: false, message: '请先登录' };
         }
@@ -120,7 +134,22 @@ export const useStore = create<AppState>()(
         }
 
         if (activity.signedCount >= activity.quota) {
-          return { success: false, message: '名额已满,已加入候补队列', position: 3 };
+          const position = get().addToWaitlist(activityId, user.id);
+          set({
+            notifications: [
+              {
+                id: Date.now(),
+                userId: user.id,
+                type: 'waitlist_notify',
+                title: '已加入候补队列',
+                message: `您已加入"${activity.title}"的候补队列,当前排位: 第${position}位`,
+                isRead: false,
+                createdAt: new Date().toISOString(),
+              },
+              ...notifications,
+            ],
+          });
+          return { success: false, message: `已加入候补队列,当前排位: 第${position}位`, position };
         }
 
         const newRegistration: Registration = {
@@ -141,6 +170,18 @@ export const useStore = create<AppState>()(
               ? { ...a, signedCount: a.signedCount + 1, isRegistered: true }
               : a
           ),
+          notifications: [
+            {
+              id: Date.now(),
+              userId: user.id,
+              type: 'registration_confirm',
+              title: '报名成功',
+              message: `您已成功报名"${activity.title}"`,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+            ...notifications,
+          ],
         });
 
         return { success: true, message: '报名成功!' };
@@ -188,31 +229,169 @@ export const useStore = create<AppState>()(
       },
 
       submitLeaveRequest: (activityId, reason) => {
-        const { user, notifications } = get();
+        const { user, leaveRequests, notifications, activities } = get();
         if (!user) return;
 
-        const newNotification: Notification = {
+        const existingRequest = leaveRequests.find(
+          lr => lr.activityId === activityId && lr.userId === user.id
+        );
+        if (existingRequest) {
+          return;
+        }
+
+        const activity = activities.find(a => a.id === activityId);
+        const newLeaveRequest: LeaveRequest = {
           id: Date.now(),
           userId: user.id,
-          type: 'leave_result',
-          title: '请假申请已提交',
-          message: `您已提交请假申请,原因: ${reason}`,
-          isRead: false,
+          userName: user.name,
+          activityId,
+          reason,
+          status: 'pending',
           createdAt: new Date().toISOString(),
         };
 
-        set({ notifications: [...notifications, newNotification] });
+        set({
+          leaveRequests: [...leaveRequests, newLeaveRequest],
+          notifications: [
+            {
+              id: Date.now(),
+              userId: user.id,
+              type: 'leave_result',
+              title: '请假申请已提交',
+              message: `您已提交"${activity?.title}"的请假申请,请等待管理员审核`,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+            ...notifications,
+          ],
+        });
       },
 
-      approveLeaveRequest: (registrationId) => {
-        const { registrations } = get();
+      approveLeaveRequest: (leaveRequestId) => {
+        const { leaveRequests, registrations, activities, notifications } = get();
+        const leaveRequest = leaveRequests.find(lr => lr.id === leaveRequestId);
+        if (!leaveRequest) return;
+
+        const registration = registrations.find(
+          r => r.activityId === leaveRequest.activityId && r.userId === leaveRequest.userId
+        );
+
         set({
-          registrations: registrations.map(r =>
-            r.id === registrationId
-              ? { ...r, status: 'leave_approved' }
-              : r
+          leaveRequests: leaveRequests.map(lr =>
+            lr.id === leaveRequestId ? { ...lr, status: 'approved' } : lr
           ),
+          registrations: registrations.map(r =>
+            r.id === registration?.id ? { ...r, status: 'leave_approved' } : r
+          ),
+          activities: activities.map(a =>
+            a.id === leaveRequest.activityId
+              ? { ...a, signedCount: Math.max(0, a.signedCount - 1) }
+              : a
+          ),
+          notifications: [
+            {
+              id: Date.now(),
+              userId: leaveRequest.userId,
+              type: 'leave_result',
+              title: '请假申请已通过',
+              message: `您的请假申请已通过,已从活动报名名单中移除`,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+            ...notifications,
+          ],
         });
+      },
+
+      rejectLeaveRequest: (leaveRequestId) => {
+        const { leaveRequests, notifications } = get();
+        const leaveRequest = leaveRequests.find(lr => lr.id === leaveRequestId);
+        if (!leaveRequest) return;
+
+        set({
+          leaveRequests: leaveRequests.map(lr =>
+            lr.id === leaveRequestId ? { ...lr, status: 'rejected' } : lr
+          ),
+          notifications: [
+            {
+              id: Date.now(),
+              userId: leaveRequest.userId,
+              type: 'leave_result',
+              title: '请假申请被拒绝',
+              message: `您的请假申请被拒绝,请联系管理员了解详情`,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+            ...notifications,
+          ],
+        });
+      },
+
+      getWaitlistsByActivity: (activityId) => {
+        return get().waitlists.filter(w => w.activityId === activityId);
+      },
+
+      addToWaitlist: (activityId, userId) => {
+        const { waitlists, user } = get();
+        const userData = mockUsers.find(u => u.id === userId);
+        const existingWaitlist = waitlists.find(
+          w => w.activityId === activityId && w.userId === userId
+        );
+        if (existingWaitlist) {
+          return existingWaitlist.position;
+        }
+
+        const activityWaitlists = waitlists.filter(w => w.activityId === activityId);
+        const position = activityWaitlists.length + 1;
+
+        const newWaitlist: Waitlist = {
+          id: Date.now(),
+          userId,
+          userName: userData?.name || '未知用户',
+          activityId,
+          position,
+          createdAt: new Date().toISOString(),
+        };
+
+        set({ waitlists: [...waitlists, newWaitlist] });
+        return position;
+      },
+
+      addReview: (activityId, rating, comment) => {
+        const { user, reviews, notifications, activities } = get();
+        if (!user) return;
+
+        const activity = activities.find(a => a.id === activityId);
+        const newReview: Review = {
+          id: Date.now(),
+          userId: user.id,
+          userName: user.name,
+          userAvatar: user.avatar,
+          activityId,
+          rating,
+          comment,
+          createdAt: new Date().toISOString(),
+        };
+
+        set({
+          reviews: [newReview, ...reviews],
+          notifications: [
+            {
+              id: Date.now(),
+              userId: user.id,
+              type: 'registration_confirm',
+              title: '评价已提交',
+              message: `感谢您对"${activity?.title}"的评价`,
+              isRead: false,
+              createdAt: new Date().toISOString(),
+            },
+            ...notifications,
+          ],
+        });
+      },
+
+      getReviewsByActivity: (activityId) => {
+        return get().reviews.filter(r => r.activityId === activityId);
       },
 
       addNotification: (notification) => {
@@ -249,6 +428,12 @@ export const useStore = create<AppState>()(
         const { activities } = get();
         return activities.filter(a => a.clubId === clubId);
       },
+
+      getUserLeaveRequests: () => {
+        const { user, leaveRequests } = get();
+        if (!user) return [];
+        return leaveRequests.filter(lr => lr.userId === user.id);
+      },
     }),
     {
       name: 'campus-activities-storage',
@@ -260,6 +445,9 @@ export const useStore = create<AppState>()(
         activities: state.activities,
         clubs: state.clubs,
         notifications: state.notifications,
+        leaveRequests: state.leaveRequests,
+        waitlists: state.waitlists,
+        reviews: state.reviews,
       }),
     }
   )

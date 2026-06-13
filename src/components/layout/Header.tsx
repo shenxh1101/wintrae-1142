@@ -38,6 +38,12 @@ export default function Header() {
               首页
             </Link>
             <Link
+              to="/activities"
+              className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+            >
+              活动中心
+            </Link>
+            <Link
               to="/clubs"
               className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors"
             >
@@ -118,6 +124,13 @@ export default function Header() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 首页
+              </Link>
+              <Link
+                to="/activities"
+                className="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-base font-medium"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                活动中心
               </Link>
               <Link
                 to="/clubs"

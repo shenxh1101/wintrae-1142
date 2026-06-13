@@ -1,18 +1,29 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { MapPin, Calendar, Users, Clock, QrCode, Heart, Star, Camera, FileText, CheckCircle } from 'lucide-react';
+import { MapPin, Calendar, Users, Clock, QrCode, Heart, Star, Camera, CheckCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { QRCodeSVG } from 'qrcode.react';
 import { Modal, Badge, Loading } from '../components';
 import { useStore } from '../store';
-import { getReviewsByActivityId, getPhotosByActivityId } from '../data/registrations';
+import { getPhotosByActivityId } from '../data/registrations';
 import { FormField } from '../types';
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { activities, user, registerActivity, cancelRegistration, toggleCollectActivity, collectedActivities, registrations } = useStore();
+  const {
+    activities,
+    user,
+    registerActivity,
+    cancelRegistration,
+    toggleCollectActivity,
+    collectedActivities,
+    registrations,
+    submitLeaveRequest,
+    addReview,
+    getReviewsByActivity,
+  } = useStore();
 
   const [showQRModal, setShowQRModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -23,12 +34,15 @@ export default function ActivityDetailPage() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const activity = activities.find(a => a.id === Number(id));
-  const reviews = getReviewsByActivityId(Number(id));
+  const reviews = getReviewsByActivity(Number(id));
   const photos = getPhotosByActivityId(Number(id));
   const isCollected = collectedActivities.includes(Number(id));
-  const userRegistration = user ? registrations.find(r => r.activityId === Number(id) && r.userId === user.id) : null;
+  const userRegistration = user
+    ? registrations.find(r => r.activityId === Number(id) && r.userId === user.id)
+    : null;
 
   if (!activity) {
     return (
@@ -38,14 +52,31 @@ export default function ActivityDetailPage() {
     );
   }
 
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    activity.formFields.forEach(field => {
+      if (field.required && !formData[field.id]?.trim()) {
+        errors[field.id] = `请填写${field.label}`;
+      }
+    });
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleRegister = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 500));
     const result = registerActivity(activity.id, formData);
     setIsSubmitting(false);
     setShowRegisterModal(false);
     alert(result.message);
     if (result.success) {
+      setFormData({});
+      setFormErrors({});
       navigate(0);
     }
   };
@@ -58,24 +89,44 @@ export default function ActivityDetailPage() {
   };
 
   const handleLeave = async () => {
+    if (!leaveReason.trim()) {
+      alert('请填写请假原因');
+      return;
+    }
+
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    submitLeaveRequest(activity.id, leaveReason);
     setIsSubmitting(false);
     setShowLeaveModal(false);
-    alert('请假申请已提交');
+    setLeaveReason('');
+    alert('请假申请已提交,请等待管理员审核');
+    navigate(0);
   };
 
   const handleReview = async () => {
+    if (!reviewComment.trim()) {
+      alert('请填写评价内容');
+      return;
+    }
+
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    addReview(activity.id, reviewRating, reviewComment);
     setIsSubmitting(false);
     setShowReviewModal(false);
+    setReviewComment('');
+    setReviewRating(5);
     alert('评价提交成功');
+    navigate(0);
   };
 
   const renderFormField = (field: FormField) => {
     const handleChange = (value: string) => {
       setFormData({ ...formData, [field.id]: value });
+      if (formErrors[field.id]) {
+        setFormErrors({ ...formErrors, [field.id]: '' });
+      }
     };
 
     switch (field.type) {
@@ -91,9 +142,13 @@ export default function ActivityDetailPage() {
               placeholder={field.placeholder}
               value={formData[field.id] || ''}
               onChange={(e) => handleChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required={field.required}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                formErrors[field.id] ? 'border-red-500' : 'border-gray-300'
+              }`}
             />
+            {formErrors[field.id] && (
+              <p className="mt-1 text-sm text-red-500">{formErrors[field.id]}</p>
+            )}
           </div>
         );
 
@@ -106,14 +161,18 @@ export default function ActivityDetailPage() {
             <select
               value={formData[field.id] || ''}
               onChange={(e) => handleChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required={field.required}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                formErrors[field.id] ? 'border-red-500' : 'border-gray-300'
+              }`}
             >
               <option value="">请选择</option>
               {field.options?.map(option => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
+            {formErrors[field.id] && (
+              <p className="mt-1 text-sm text-red-500">{formErrors[field.id]}</p>
+            )}
           </div>
         );
 
@@ -128,9 +187,13 @@ export default function ActivityDetailPage() {
               value={formData[field.id] || ''}
               onChange={(e) => handleChange(e.target.value)}
               rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required={field.required}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                formErrors[field.id] ? 'border-red-500' : 'border-gray-300'
+              }`}
             />
+            {formErrors[field.id] && (
+              <p className="mt-1 text-sm text-red-500">{formErrors[field.id]}</p>
+            )}
           </div>
         );
 
@@ -326,7 +389,11 @@ export default function ActivityDetailPage() {
                       if (!user) {
                         navigate('/login');
                       } else {
-                        alert('已加入候补队列');
+                        const result = registerActivity(activity.id, {});
+                        alert(result.message);
+                        if (result.position) {
+                          navigate(0);
+                        }
                       }
                     }}
                     className="w-full px-6 py-3 bg-orange-600 text-white font-medium rounded-lg hover:bg-orange-700 transition-colors"
@@ -390,7 +457,10 @@ export default function ActivityDetailPage() {
 
           <div className="flex space-x-3 mt-6">
             <button
-              onClick={() => setShowRegisterModal(false)}
+              onClick={() => {
+                setShowRegisterModal(false);
+                setFormErrors({});
+              }}
               className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
             >
               取消
@@ -418,7 +488,10 @@ export default function ActivityDetailPage() {
           />
           <div className="flex space-x-3 mt-6">
             <button
-              onClick={() => setShowLeaveModal(false)}
+              onClick={() => {
+                setShowLeaveModal(false);
+                setLeaveReason('');
+              }}
               className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
             >
               取消
@@ -470,7 +543,11 @@ export default function ActivityDetailPage() {
 
           <div className="flex space-x-3">
             <button
-              onClick={() => setShowReviewModal(false)}
+              onClick={() => {
+                setShowReviewModal(false);
+                setReviewComment('');
+                setReviewRating(5);
+              }}
               className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
             >
               取消

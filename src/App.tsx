@@ -7,6 +7,9 @@ import {
   RegistrationPage,
   ProfilePage,
   LoginPage,
+  ActivitiesListPage,
+  ClubsListPage,
+  NotificationsPage,
 } from "./pages";
 
 export default function App() {
@@ -17,10 +20,13 @@ export default function App() {
         <main className="flex-grow">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/activities" element={<ActivitiesListPage />} />
+            <Route path="/clubs" element={<ClubsListPage />} />
             <Route path="/activity/:id" element={<ActivityDetailPage />} />
             <Route path="/club/:id" element={<ClubPage />} />
             <Route path="/registration" element={<RegistrationPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route
               path="*"

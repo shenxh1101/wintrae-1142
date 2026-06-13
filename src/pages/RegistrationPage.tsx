@@ -1,19 +1,28 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Users, CheckCircle, Clock, AlertCircle, QrCode, FileText, BarChart3 } from 'lucide-react';
+import { Download, Users, CheckCircle, Clock, AlertCircle, QrCode, BarChart3, FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { saveAs } from 'file-saver';
 import { Badge } from '../components';
 import { useStore } from '../store';
-import { getWaitlistsByActivityId } from '../data/registrations';
+import { mockUsers } from '../data/users';
 
 export default function RegistrationPage() {
   const navigate = useNavigate();
-  const { user, activities, registrations, checkin, approveLeaveRequest } = useStore();
+  const {
+    user,
+    activities,
+    registrations,
+    checkin,
+    approveLeaveRequest,
+    rejectLeaveRequest,
+    leaveRequests,
+    getWaitlistsByActivity,
+  } = useStore();
   const [selectedActivityId, setSelectedActivityId] = useState<number>(activities[0]?.id || 0);
-  const [activeTab, setActiveTab] = useState<'registrations' | 'statistics' | 'waitlist'>('registrations');
+  const [activeTab, setActiveTab] = useState<'registrations' | 'statistics' | 'waitlist' | 'leave'>('registrations');
 
   if (!user || (user.role !== 'club_admin' && user.role !== 'admin')) {
     return (
@@ -35,31 +44,36 @@ export default function RegistrationPage() {
 
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
   const activityRegistrations = registrations.filter(r => r.activityId === selectedActivityId);
-  const waitlists = getWaitlistsByActivityId(selectedActivityId);
+  const waitlists = getWaitlistsByActivity(selectedActivityId);
+  const activityLeaveRequests = leaveRequests.filter(lr => lr.activityId === selectedActivityId);
 
   const checkedInCount = activityRegistrations.filter(r => r.status === 'checked_in').length;
   const notCheckedInCount = activityRegistrations.filter(r => r.status === 'registered').length;
   const leaveApprovedCount = activityRegistrations.filter(r => r.status === 'leave_approved').length;
 
-  const statisticsData = [
-    { date: '06-01', registrations: 12, checkins: 10 },
-    { date: '06-05', registrations: 18, checkins: 16 },
-    { date: '06-10', registrations: 25, checkins: 23 },
-    { date: '06-15', registrations: 32, checkins: 28 },
-    { date: '06-20', registrations: 38, checkins: 35 },
-    { date: '06-25', registrations: 42, checkins: 40 },
-  ];
+  const statisticsData = activityRegistrations.length > 0
+    ? [
+        {
+          date: format(parseISO(activityRegistrations[0]?.createdAt || new Date().toISOString()), 'MM-dd'),
+          registrations: activityRegistrations.length,
+          checkins: checkedInCount,
+        },
+      ]
+    : [];
 
   const handleExport = () => {
     const csvContent = [
       ['姓名', '学号', '报名时间', '签到状态', '签到时间'].join(','),
-      ...activityRegistrations.map(r => [
-        r.userName,
-        r.userId.toString().padStart(10, '0'),
-        format(parseISO(r.createdAt), 'yyyy-MM-dd HH:mm:ss'),
-        r.status === 'checked_in' ? '已签到' : '未签到',
-        r.checkinTime ? format(parseISO(r.checkinTime), 'yyyy-MM-dd HH:mm:ss') : '',
-      ].join(',')),
+      ...activityRegistrations.map(r => {
+        const userData = mockUsers.find(u => u.id === r.userId);
+        return [
+          r.userName,
+          userData?.studentId || r.userId.toString(),
+          format(parseISO(r.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+          r.status === 'checked_in' ? '已签到' : r.status === 'leave_approved' ? '已请假' : '未签到',
+          r.checkinTime ? format(parseISO(r.checkinTime), 'yyyy-MM-dd HH:mm:ss') : '',
+        ].join(',');
+      }),
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -98,7 +112,7 @@ export default function RegistrationPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
             <div className="bg-blue-50 rounded-xl p-6">
               <div className="flex items-center">
                 <Users className="w-8 h-8 text-blue-600 mr-3" />
@@ -138,6 +152,16 @@ export default function RegistrationPage() {
                 </div>
               </div>
             </div>
+
+            <div className="bg-indigo-50 rounded-xl p-6">
+              <div className="flex items-center">
+                <Users className="w-8 h-8 text-indigo-600 mr-3" />
+                <div>
+                  <p className="text-sm text-gray-600">候补</p>
+                  <p className="text-2xl font-bold text-gray-900">{waitlists.length}</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="flex space-x-4 mb-6 border-b">
@@ -170,6 +194,16 @@ export default function RegistrationPage() {
               }`}
             >
               候补队列 ({waitlists.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('leave')}
+              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                activeTab === 'leave'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              请假申请 ({activityLeaveRequests.length})
             </button>
           </div>
 
@@ -208,68 +242,71 @@ export default function RegistrationPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {activityRegistrations.map(registration => (
-                      <tr key={registration.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <img
-                              src={registration.userAvatar}
-                              alt={registration.userName}
-                              className="w-10 h-10 rounded-full mr-3"
-                            />
-                            <span className="text-sm font-medium text-gray-900">
-                              {registration.userName}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {registration.userId.toString().padStart(10, '0')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {format(parseISO(registration.createdAt), 'MM-dd HH:mm', { locale: zhCN })}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <Badge
-                            variant={
-                              registration.status === 'checked_in'
-                                ? 'success'
-                                : registration.status === 'leave_approved'
-                                ? 'warning'
-                                : 'default'
-                            }
-                          >
-                            {registration.status === 'checked_in'
-                              ? '已签到'
-                              : registration.status === 'leave_approved'
-                              ? '已请假'
-                              : '未签到'}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          {registration.status === 'registered' && (
-                            <button
-                              onClick={() => handleCheckin(registration.userId)}
-                              className="text-blue-600 hover:text-blue-800 flex items-center"
+                    {activityRegistrations.map(registration => {
+                      const userData = mockUsers.find(u => u.id === registration.userId);
+                      return (
+                        <tr key={registration.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <img
+                                src={registration.userAvatar}
+                                alt={registration.userName}
+                                className="w-10 h-10 rounded-full mr-3"
+                              />
+                              <span className="text-sm font-medium text-gray-900">
+                                {registration.userName}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {userData?.studentId || registration.userId.toString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {format(parseISO(registration.createdAt), 'MM-dd HH:mm', { locale: zhCN })}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <Badge
+                              variant={
+                                registration.status === 'checked_in'
+                                  ? 'success'
+                                  : registration.status === 'leave_approved'
+                                  ? 'warning'
+                                  : 'default'
+                              }
                             >
-                              <QrCode className="w-4 h-4 mr-1" />
-                              签到
-                            </button>
-                          )}
-                          {registration.status === 'checked_in' && (
-                            <span className="text-green-600 flex items-center">
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              已完成
-                            </span>
-                          )}
-                          {registration.status === 'leave_approved' && (
-                            <span className="text-orange-600 flex items-center">
-                              <Clock className="w-4 h-4 mr-1" />
-                              已请假
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                              {registration.status === 'checked_in'
+                                ? '已签到'
+                                : registration.status === 'leave_approved'
+                                ? '已请假'
+                                : '未签到'}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {registration.status === 'registered' && (
+                              <button
+                                onClick={() => handleCheckin(registration.userId)}
+                                className="text-blue-600 hover:text-blue-800 flex items-center"
+                              >
+                                <QrCode className="w-4 h-4 mr-1" />
+                                签到
+                              </button>
+                            )}
+                            {registration.status === 'checked_in' && (
+                              <span className="text-green-600 flex items-center">
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                已完成
+                              </span>
+                            )}
+                            {registration.status === 'leave_approved' && (
+                              <span className="text-orange-600 flex items-center">
+                                <Clock className="w-4 h-4 mr-1" />
+                                已请假
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
 
@@ -288,31 +325,16 @@ export default function RegistrationPage() {
               <div className="bg-white rounded-xl shadow-md p-6">
                 <div className="flex items-center mb-6">
                   <BarChart3 className="w-6 h-6 text-blue-600 mr-2" />
-                  <h2 className="text-xl font-bold text-gray-900">报名趋势</h2>
-                </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={statisticsData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="registrations" stroke="#2563eb" strokeWidth={2} name="报名人数" />
-                    <Line type="monotone" dataKey="checkins" stroke="#10b981" strokeWidth={2} name="签到人数" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <div className="flex items-center mb-6">
-                  <FileText className="w-6 h-6 text-blue-600 mr-2" />
-                  <h2 className="text-xl font-bold text-gray-900">签到率统计</h2>
+                  <h2 className="text-xl font-bold text-gray-900">当前活动报名统计</h2>
                 </div>
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={[
-                    { name: '已签到', value: checkedInCount, fill: '#10b981' },
-                    { name: '未签到', value: notCheckedInCount, fill: '#f97316' },
-                    { name: '已请假', value: leaveApprovedCount, fill: '#8b5cf6' },
-                  ]}>
+                  <BarChart
+                    data={[
+                      { name: '已签到', value: checkedInCount, fill: '#10b981' },
+                      { name: '未签到', value: notCheckedInCount, fill: '#f97316' },
+                      { name: '已请假', value: leaveApprovedCount, fill: '#8b5cf6' },
+                    ]}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
@@ -320,6 +342,31 @@ export default function RegistrationPage() {
                     <Bar dataKey="value" />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-md p-6">
+                <div className="flex items-center mb-6">
+                  <FileText className="w-6 h-6 text-blue-600 mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900">数据概览</h2>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-gray-600">报名率</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {selectedActivity?.quota
+                        ? Math.round((activityRegistrations.length / selectedActivity.quota) * 100)
+                        : 0}%
+                    </p>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-lg">
+                    <p className="text-sm text-gray-600">签到率</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {activityRegistrations.length > 0
+                        ? Math.round((checkedInCount / activityRegistrations.length) * 100)
+                        : 0}%
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -376,6 +423,106 @@ export default function RegistrationPage() {
                   <div className="p-12 text-center">
                     <Clock className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-500">暂无候补人员</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'leave' && (
+            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+              <div className="p-4 border-b">
+                <h2 className="text-lg font-semibold text-gray-900">请假申请列表</h2>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        姓名
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        请假原因
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        申请时间
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        状态
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        操作
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {activityLeaveRequests.map(leave => (
+                      <tr key={leave.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {leave.userName}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {leave.reason}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {format(parseISO(leave.createdAt), 'MM-dd HH:mm', { locale: zhCN })}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <Badge
+                            variant={
+                              leave.status === 'approved'
+                                ? 'success'
+                                : leave.status === 'rejected'
+                                ? 'warning'
+                                : 'info'
+                            }
+                          >
+                            {leave.status === 'pending'
+                              ? '待审核'
+                              : leave.status === 'approved'
+                              ? '已通过'
+                              : '已拒绝'}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {leave.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  approveLeaveRequest(leave.id);
+                                  alert('已通过请假申请');
+                                  navigate(0);
+                                }}
+                                className="text-green-600 hover:text-green-800 mr-4"
+                              >
+                                通过
+                              </button>
+                              <button
+                                onClick={() => {
+                                  rejectLeaveRequest(leave.id);
+                                  alert('已拒绝请假申请');
+                                  navigate(0);
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                拒绝
+                              </button>
+                            </>
+                          )}
+                          {leave.status !== 'pending' && (
+                            <span className="text-gray-400">已处理</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {activityLeaveRequests.length === 0 && (
+                  <div className="p-12 text-center">
+                    <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500">暂无请假申请</p>
                   </div>
                 )}
               </div>

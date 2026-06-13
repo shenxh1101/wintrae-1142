@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, Award, Calendar, Heart, Users, Bell, Clock, ChevronRight } from 'lucide-react';
+import { User, Award, Calendar, Users, Bell, Clock, ChevronRight, FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { ActivityCard, ClubCard, Badge } from '../components';
 import { useStore } from '../store';
 import { getPointRecordsByUserId } from '../data/registrations';
 
-type TabType = 'activities' | 'clubs' | 'points' | 'notifications';
+type TabType = 'activities' | 'clubs' | 'points' | 'notifications' | 'leaves';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, activities, clubs, registrations, collectedActivities, followedClubs, notifications, markNotificationRead } = useStore();
+  const { user, activities, clubs, registrations, collectedActivities, followedClubs, notifications, markNotificationRead, leaveRequests } = useStore();
   const [activeTab, setActiveTab] = useState<TabType>('activities');
 
   if (!user) {
@@ -38,11 +38,13 @@ export default function ProfilePage() {
   const userFollowedClubs = clubs.filter(c => followedClubs.includes(c.id));
   const pointRecords = getPointRecordsByUserId(user.id);
   const unreadNotifications = notifications.filter(n => !n.isRead).length;
+  const userLeaveRequests = leaveRequests.filter(lr => lr.userId === user.id);
 
   const tabs = [
     { id: 'activities', label: '我的活动', icon: Calendar, count: userActivities.length },
     { id: 'clubs', label: '我的社团', icon: Users, count: userFollowedClubs.length },
     { id: 'points', label: '积分记录', icon: Award, count: null },
+    { id: 'leaves', label: '请假记录', icon: FileText, count: userLeaveRequests.length },
     { id: 'notifications', label: '通知', icon: Bell, count: unreadNotifications },
   ];
 
@@ -267,6 +269,60 @@ export default function ProfilePage() {
               </div>
             )}
 
+            {activeTab === 'leaves' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold text-gray-900">请假记录</h2>
+
+                <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                  {userLeaveRequests.length > 0 ? (
+                    userLeaveRequests.map(leave => {
+                      const activity = activities.find(a => a.id === leave.activityId);
+                      return (
+                        <div key={leave.id} className="p-6 border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center">
+                              <Clock className="w-5 h-5 text-orange-600 mr-2" />
+                              <h3 className="font-semibold text-gray-900">
+                                {activity?.title || '未知活动'}
+                              </h3>
+                            </div>
+                            <Badge
+                              variant={
+                                leave.status === 'approved'
+                                  ? 'success'
+                                  : leave.status === 'rejected'
+                                  ? 'warning'
+                                  : 'info'
+                              }
+                            >
+                              {leave.status === 'pending'
+                                ? '待审核'
+                                : leave.status === 'approved'
+                                ? '已通过'
+                                : '已拒绝'}
+                            </Badge>
+                          </div>
+                          <div className="ml-7 space-y-2">
+                            <p className="text-gray-700">
+                              <span className="font-medium">请假原因:</span> {leave.reason}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              申请时间: {format(parseISO(leave.createdAt), 'yyyy年MM月dd日 HH:mm', { locale: zhCN })}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-12 text-center">
+                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-500">暂无请假记录</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {activeTab === 'notifications' && (
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold text-gray-900">通知</h2>
@@ -276,7 +332,7 @@ export default function ProfilePage() {
                     notifications.map(notification => (
                       <div
                         key={notification.id}
-                        className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                        className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${
                           !notification.isRead ? 'bg-blue-50' : ''
                         }`}
                         onClick={() => markNotificationRead(notification.id)}
