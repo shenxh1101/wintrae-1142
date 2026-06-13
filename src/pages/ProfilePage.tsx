@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { User, Award, Calendar, Users, Bell, Clock, ChevronRight, FileText } from 'lucide-react';
+import { User, Award, Calendar, Users, Bell, Clock, ChevronRight, FileText, CheckCircle, AlertCircle, UserCheck } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { ActivityCard, ClubCard, Badge } from '../components';
@@ -9,10 +9,37 @@ import { getPointRecordsByUserId } from '../data/registrations';
 
 type TabType = 'activities' | 'clubs' | 'points' | 'notifications' | 'leaves';
 
+interface ActivityRecord {
+  id: number;
+  activityId: number;
+  title: string;
+  coverImage: string;
+  location: string;
+  startTime: string;
+  status: 'registered' | 'checked_in' | 'leave_approved' | 'waitlist' | 'leave_pending';
+  statusText: string;
+  statusColor: string;
+  registeredAt: string;
+  position?: number;
+}
+
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, activities, clubs, registrations, collectedActivities, followedClubs, notifications, markNotificationRead, leaveRequests } = useStore();
+  const {
+    user,
+    activities,
+    clubs,
+    registrations,
+    collectedActivities,
+    followedClubs,
+    notifications,
+    markNotificationRead,
+    leaveRequests,
+    waitlists,
+    getUserWaitlistEntry,
+  } = useStore();
   const [activeTab, setActiveTab] = useState<TabType>('activities');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'upcoming' | 'completed'>('all');
 
   if (!user) {
     return (
@@ -32,8 +59,79 @@ export default function ProfilePage() {
     );
   }
 
-  const userRegistrations = registrations.filter(r => r.userId === user.id);
-  const userActivities = userRegistrations.map(r => activities.find(a => a.id === r.activityId)).filter(Boolean);
+  const userActivitiesList: ActivityRecord[] = registrations
+    .filter(r => r.userId === user.id)
+    .map(r => {
+      const activity = activities.find(a => a.id === r.activityId);
+      return {
+        id: r.id,
+        activityId: r.activityId,
+        title: activity?.title || '未知活动',
+        coverImage: activity?.coverImage || '',
+        location: activity?.location || '',
+        startTime: activity?.startTime || '',
+        status: r.status,
+        statusText: r.status === 'registered' ? '已报名' :
+                   r.status === 'checked_in' ? '已签到' :
+                   r.status === 'leave_approved' ? '已请假' : '未知',
+        statusColor: r.status === 'registered' ? 'blue' :
+                    r.status === 'checked_in' ? 'green' :
+                    r.status === 'leave_approved' ? 'orange' : 'gray',
+        registeredAt: r.createdAt,
+      };
+    });
+
+  const userWaitlistEntries = waitlists
+    .filter(w => w.userId === user.id)
+    .map(w => {
+      const activity = activities.find(a => a.id === w.activityId);
+      return {
+        id: w.id,
+        activityId: w.activityId,
+        title: activity?.title || '未知活动',
+        coverImage: activity?.coverImage || '',
+        location: activity?.location || '',
+        startTime: activity?.startTime || '',
+        status: 'waitlist' as const,
+        statusText: `候补中 (第${w.position}位)`,
+        statusColor: 'purple',
+        registeredAt: w.createdAt,
+        position: w.position,
+      };
+    });
+
+  const userLeavePending = leaveRequests
+    .filter(lr => lr.userId === user.id && lr.status === 'pending')
+    .map(lr => {
+      const activity = activities.find(a => a.id === lr.activityId);
+      return {
+        id: lr.id,
+        activityId: lr.activityId,
+        title: activity?.title || '未知活动',
+        coverImage: activity?.coverImage || '',
+        location: activity?.location || '',
+        startTime: activity?.startTime || '',
+        status: 'leave_pending' as const,
+        statusText: '请假审核中',
+        statusColor: 'yellow',
+        registeredAt: lr.createdAt,
+      };
+    });
+
+  const allActivityRecords = [...userActivitiesList, ...userWaitlistEntries, ...userLeavePending]
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+
+  const filteredActivities = allActivityRecords.filter(record => {
+    if (activityFilter === 'all') return true;
+    const startDate = new Date(record.startTime);
+    const now = new Date();
+    if (activityFilter === 'upcoming') {
+      return startDate >= now;
+    } else {
+      return startDate < now;
+    }
+  });
+
   const userCollectedActivities = activities.filter(a => collectedActivities.includes(a.id));
   const userFollowedClubs = clubs.filter(c => followedClubs.includes(c.id));
   const pointRecords = getPointRecordsByUserId(user.id);
@@ -41,7 +139,7 @@ export default function ProfilePage() {
   const userLeaveRequests = leaveRequests.filter(lr => lr.userId === user.id);
 
   const tabs = [
-    { id: 'activities', label: '我的活动', icon: Calendar, count: userActivities.length },
+    { id: 'activities', label: '我的活动', icon: Calendar, count: allActivityRecords.length },
     { id: 'clubs', label: '我的社团', icon: Users, count: userFollowedClubs.length },
     { id: 'points', label: '积分记录', icon: Award, count: null },
     { id: 'leaves', label: '请假记录', icon: FileText, count: userLeaveRequests.length },
@@ -73,7 +171,7 @@ export default function ProfilePage() {
                   <p className="text-sm text-blue-100">积分</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-bold">{userActivities.length}</p>
+                  <p className="text-2xl font-bold">{userActivitiesList.length}</p>
                   <p className="text-sm text-blue-100">参与活动</p>
                 </div>
                 <div className="text-center">
@@ -124,17 +222,79 @@ export default function ProfilePage() {
           <div className="lg:col-span-3">
             {activeTab === 'activities' && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-gray-900">我的活动</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-900">我的活动</h2>
+                  <div className="flex space-x-2">
+                    {(['all', 'upcoming', 'completed'] as const).map(filter => (
+                      <button
+                        key={filter}
+                        onClick={() => setActivityFilter(filter)}
+                        className={`px-4 py-2 rounded-lg transition-colors ${
+                          activityFilter === filter
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {filter === 'all' ? '全部' : filter === 'upcoming' ? '进行中' : '已结束'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {userActivities.length > 0 ? (
-                    userActivities.map(activity => activity && (
-                      <ActivityCard key={activity.id} activity={activity} />
+                <div className="space-y-4">
+                  {filteredActivities.length > 0 ? (
+                    filteredActivities.map(record => (
+                      <div
+                        key={`${record.status}-${record.id}`}
+                        onClick={() => navigate(`/activity/${record.activityId}`)}
+                        className="block bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer hover:scale-[1.01]"
+                      >
+                        <div className="flex">
+                          <img
+                            src={record.coverImage}
+                            alt={record.title}
+                            className="w-48 h-32 object-cover"
+                          />
+                          <div className="flex-1 p-6">
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h3 className="text-lg font-bold text-gray-900 mb-1 hover:text-blue-600 transition-colors">
+                                  {record.title}
+                                </h3>
+                                <p className="text-sm text-gray-600">
+                                  {format(parseISO(record.startTime), 'yyyy年MM月dd日 HH:mm', { locale: zhCN })}
+                                </p>
+                                <p className="text-sm text-gray-500">{record.location}</p>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Badge
+                                  variant={
+                                    record.statusColor === 'blue' ? 'category' :
+                                    record.statusColor === 'green' ? 'success' :
+                                    record.statusColor === 'purple' ? 'status' :
+                                    record.statusColor === 'orange' ? 'warning' : 'default'
+                                  }
+                                >
+                                  {record.statusText}
+                                </Badge>
+                                <ChevronRight className="w-5 h-5 text-gray-400" />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between text-sm text-gray-500">
+                              <div className="flex items-center">
+                                <Clock className="w-4 h-4 mr-1" />
+                                报名时间: {format(parseISO(record.registeredAt), 'MM-dd HH:mm', { locale: zhCN })}
+                              </div>
+                              <span className="text-blue-600 text-xs hover:underline">点击查看详情 →</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ))
                   ) : (
-                    <div className="col-span-2 bg-white rounded-xl shadow-md p-12 text-center">
+                    <div className="bg-white rounded-xl shadow-md p-12 text-center">
                       <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-500">暂无参与活动</p>
+                      <p className="text-gray-500">暂无{activityFilter === 'all' ? '' : activityFilter === 'upcoming' ? '进行中' : '已结束'}的活动</p>
                       <Link
                         to="/"
                         className="inline-block mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -149,7 +309,7 @@ export default function ProfilePage() {
                   <>
                     <h3 className="text-xl font-bold text-gray-900 mt-8 mb-4">收藏的活动</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {userCollectedActivities.map(activity => (
+                      {userCollectedActivities.slice(0, 4).map(activity => (
                         <ActivityCard key={activity.id} activity={activity} />
                       ))}
                     </div>
@@ -234,36 +394,6 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     ))}
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl shadow-md p-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4">积分规则</h3>
-                  <div className="space-y-3 text-gray-600">
-                    <div className="flex items-start">
-                      <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0 mt-0.5">
-                        <span className="text-green-600 text-xs font-bold">1</span>
-                      </div>
-                      <p>参加活动: +50-100积分(根据活动类型)</p>
-                    </div>
-                    <div className="flex items-start">
-                      <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0 mt-0.5">
-                        <span className="text-green-600 text-xs font-bold">2</span>
-                      </div>
-                      <p>完成签到: +20积分</p>
-                    </div>
-                    <div className="flex items-start">
-                      <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0 mt-0.5">
-                        <span className="text-green-600 text-xs font-bold">3</span>
-                      </div>
-                      <p>活动评价: +10积分</p>
-                    </div>
-                    <div className="flex items-start">
-                      <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center mr-3 flex-shrink-0 mt-0.5">
-                        <span className="text-red-600 text-xs font-bold">4</span>
-                      </div>
-                      <p>兑换礼品: -积分(根据礼品价值)</p>
-                    </div>
                   </div>
                 </div>
               </div>

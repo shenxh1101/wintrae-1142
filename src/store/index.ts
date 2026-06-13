@@ -31,7 +31,7 @@ interface AppState {
   checkin: (activityId: number, userId: number) => { success: boolean; message: string };
 
   submitLeaveRequest: (activityId: number, reason: string) => void;
-  approveLeaveRequest: (leaveRequestId: number) => void;
+  approveLeaveRequest: (leaveRequestId: number) => { promoted?: boolean; promotedUser?: string };
   rejectLeaveRequest: (leaveRequestId: number) => void;
 
   getWaitlistsByActivity: (activityId: number) => Waitlist[];
@@ -39,6 +39,7 @@ interface AppState {
 
   addReview: (activityId: number, rating: number, comment: string) => void;
   getReviewsByActivity: (activityId: number) => Review[];
+  hasUserReviewedActivity: (activityId: number) => boolean;
 
   addNotification: (notification: Omit<Notification, 'id' | 'createdAt'>) => void;
   markNotificationRead: (notificationId: number) => void;
@@ -47,6 +48,7 @@ interface AppState {
   getActivityRegistrations: (activityId: number) => Registration[];
   getClubActivities: (clubId: number) => Activity[];
   getUserLeaveRequests: () => LeaveRequest[];
+  getUserWaitlistEntry: (activityId: number) => Waitlist | undefined;
 }
 
 export const useStore = create<AppState>()(
@@ -116,7 +118,7 @@ export const useStore = create<AppState>()(
       },
 
       registerActivity: (activityId, formData) => {
-        const { user, registrations, activities, waitlists, notifications } = get();
+        const { user, registrations, activities, notifications } = get();
         if (!user) {
           return { success: false, message: '请先登录' };
         }
@@ -188,8 +190,65 @@ export const useStore = create<AppState>()(
       },
 
       cancelRegistration: (activityId) => {
-        const { user, registrations, activities } = get();
+        const { user, registrations, activities, waitlists, notifications } = get();
         if (!user) return;
+
+        const activity = activities.find(a => a.id === activityId);
+        const firstWaitlist = waitlists
+          .filter(w => w.activityId === activityId)
+          .sort((a, b) => a.position - b.position)[0];
+
+        let newNotifications = [...notifications];
+        let updatedWaitlists = [...waitlists];
+
+        if (firstWaitlist) {
+          const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
+
+          updatedWaitlists = waitlists
+            .filter(w => w.id !== firstWaitlist.id)
+            .map(w => ({
+              ...w,
+              position: w.position - 1,
+            }));
+
+          const newRegistration: Registration = {
+            id: Date.now(),
+            userId: firstWaitlist.userId,
+            userName: firstWaitlist.userName,
+            userAvatar: promotedUser?.avatar || '',
+            activityId,
+            formData: {},
+            status: 'registered',
+            createdAt: new Date().toISOString(),
+          };
+
+          set({
+            registrations: [
+              ...registrations.filter(r => !(r.activityId === activityId && r.userId === user.id)),
+              newRegistration,
+            ],
+            activities: activities.map(a =>
+              a.id === activityId
+                ? { ...a, isRegistered: firstWaitlist.userId === a.id ? true : a.isRegistered }
+                : a
+            ),
+            waitlists: updatedWaitlists,
+            notifications: [
+              {
+                id: Date.now(),
+                userId: firstWaitlist.userId,
+                type: 'waitlist_notify',
+                title: '候补转正通知',
+                message: `恭喜!您在"${activity?.title}"的候补队列中已成功转正,请注意查看。`,
+                isRead: false,
+                createdAt: new Date().toISOString(),
+              },
+              ...newNotifications,
+            ],
+          });
+
+          return;
+        }
 
         set({
           registrations: registrations.filter(
@@ -204,7 +263,7 @@ export const useStore = create<AppState>()(
       },
 
       checkin: (activityId, userId) => {
-        const { registrations, activities } = get();
+        const { registrations } = get();
         const registration = registrations.find(
           r => r.activityId === activityId && r.userId === userId
         );
@@ -268,13 +327,82 @@ export const useStore = create<AppState>()(
       },
 
       approveLeaveRequest: (leaveRequestId) => {
-        const { leaveRequests, registrations, activities, notifications } = get();
+        const { leaveRequests, registrations, activities, waitlists, notifications } = get();
         const leaveRequest = leaveRequests.find(lr => lr.id === leaveRequestId);
-        if (!leaveRequest) return;
+        if (!leaveRequest) return {};
 
+        const activity = activities.find(a => a.id === leaveRequest.activityId);
         const registration = registrations.find(
           r => r.activityId === leaveRequest.activityId && r.userId === leaveRequest.userId
         );
+
+        const firstWaitlist = waitlists
+          .filter(w => w.activityId === leaveRequest.activityId)
+          .sort((a, b) => a.position - b.position)[0];
+
+        let newNotifications = [
+          {
+            id: Date.now(),
+            userId: leaveRequest.userId,
+            type: 'leave_result',
+            title: '请假申请已通过',
+            message: `您的请假申请已通过,已从活动报名名单中移除`,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          },
+          ...notifications,
+        ];
+
+        if (firstWaitlist) {
+          const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
+          const updatedWaitlists = waitlists
+            .filter(w => w.id !== firstWaitlist.id)
+            .map(w => ({
+              ...w,
+              position: w.position - 1,
+            }));
+
+          const newRegistration: Registration = {
+            id: Date.now(),
+            userId: firstWaitlist.userId,
+            userName: firstWaitlist.userName,
+            userAvatar: promotedUser?.avatar || '',
+            activityId: leaveRequest.activityId,
+            formData: {},
+            status: 'registered',
+            createdAt: new Date().toISOString(),
+          };
+
+          set({
+            leaveRequests: leaveRequests.map(lr =>
+              lr.id === leaveRequestId ? { ...lr, status: 'approved' } : lr
+            ),
+            registrations: [
+              ...registrations.filter(r => r.id !== registration?.id),
+              newRegistration,
+            ],
+            activities: activities.map(a =>
+              a.id === leaveRequest.activityId
+                ? { ...a, signedCount: Math.max(0, a.signedCount - 1) }
+                : a
+            ),
+            waitlists: updatedWaitlists,
+            notifications: [
+              {
+                id: Date.now() + 1,
+                userId: firstWaitlist.userId,
+                type: 'waitlist_notify',
+                title: '候补转正通知',
+                message: `恭喜!您在"${activity?.title}"的候补队列中已成功转正,请注意查看。`,
+                isRead: false,
+                createdAt: new Date().toISOString(),
+              },
+              ...newNotifications,
+            ],
+          });
+
+          return { promoted: true, promotedUser: firstWaitlist.userName };
+        }
 
         set({
           leaveRequests: leaveRequests.map(lr =>
@@ -288,19 +416,10 @@ export const useStore = create<AppState>()(
               ? { ...a, signedCount: Math.max(0, a.signedCount - 1) }
               : a
           ),
-          notifications: [
-            {
-              id: Date.now(),
-              userId: leaveRequest.userId,
-              type: 'leave_result',
-              title: '请假申请已通过',
-              message: `您的请假申请已通过,已从活动报名名单中移除`,
-              isRead: false,
-              createdAt: new Date().toISOString(),
-            },
-            ...notifications,
-          ],
+          notifications: newNotifications,
         });
+
+        return {};
       },
 
       rejectLeaveRequest: (leaveRequestId) => {
@@ -328,7 +447,9 @@ export const useStore = create<AppState>()(
       },
 
       getWaitlistsByActivity: (activityId) => {
-        return get().waitlists.filter(w => w.activityId === activityId);
+        return get().waitlists
+          .filter(w => w.activityId === activityId)
+          .sort((a, b) => a.position - b.position);
       },
 
       addToWaitlist: (activityId, userId) => {
@@ -361,6 +482,20 @@ export const useStore = create<AppState>()(
         const { user, reviews, notifications, activities } = get();
         if (!user) return;
 
+        const existingReview = reviews.find(
+          r => r.activityId === activityId && r.userId === user.id
+        );
+        if (existingReview) {
+          set({
+            reviews: reviews.map(r =>
+              r.id === existingReview.id
+                ? { ...r, rating, comment, createdAt: new Date().toISOString() }
+                : r
+            ),
+          });
+          return;
+        }
+
         const activity = activities.find(a => a.id === activityId);
         const newReview: Review = {
           id: Date.now(),
@@ -391,7 +526,15 @@ export const useStore = create<AppState>()(
       },
 
       getReviewsByActivity: (activityId) => {
-        return get().reviews.filter(r => r.activityId === activityId);
+        return get().reviews
+          .filter(r => r.activityId === activityId)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      },
+
+      hasUserReviewedActivity: (activityId) => {
+        const { user, reviews } = get();
+        if (!user) return false;
+        return reviews.some(r => r.activityId === activityId && r.userId === user.id);
       },
 
       addNotification: (notification) => {
@@ -433,6 +576,12 @@ export const useStore = create<AppState>()(
         const { user, leaveRequests } = get();
         if (!user) return [];
         return leaveRequests.filter(lr => lr.userId === user.id);
+      },
+
+      getUserWaitlistEntry: (activityId) => {
+        const { user, waitlists } = get();
+        if (!user) return undefined;
+        return waitlists.find(w => w.activityId === activityId && w.userId === user.id);
       },
     }),
     {

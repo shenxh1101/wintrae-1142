@@ -270,49 +270,60 @@ export default function ActivityDetailPage() {
               </div>
             )}
 
-            {reviews.length > 0 && (
+            {(reviews.length > 0 || (activity.status === 'finished' && user)) && (
               <div className="bg-white rounded-xl shadow-md p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center">
                     <Star className="w-5 h-5 text-yellow-500 mr-2" />
                     <h2 className="text-2xl font-bold text-gray-900">学员评价</h2>
                   </div>
-                  <div className="text-2xl font-bold text-yellow-500">
-                    {reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length}/5
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  {reviews.map(review => (
-                    <div key={review.id} className="border-b border-gray-100 pb-4">
-                      <div className="flex items-center mb-2">
-                        <img src={review.userAvatar} alt={review.userName} className="w-10 h-10 rounded-full mr-3" />
-                        <div>
-                          <p className="font-medium text-gray-900">{review.userName}</p>
-                          <div className="flex items-center">
-                            {[...Array(5)].map((_, i) => (
-                              <Star
-                                key={i}
-                                className={`w-4 h-4 ${
-                                  i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <span className="ml-auto text-sm text-gray-500">
-                          {format(parseISO(review.createdAt), 'MM月dd日')}
-                        </span>
-                      </div>
-                      <p className="text-gray-700">{review.comment}</p>
+                  {reviews.length > 0 && (
+                    <div className="text-2xl font-bold text-yellow-500">
+                      {reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length}/5
                     </div>
-                  ))}
+                  )}
                 </div>
+                
+                {reviews.length === 0 && activity.status === 'finished' ? (
+                  <div className="text-center py-8">
+                    <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 mb-4">暂无评价,成为第一个评价者吧</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {reviews.map(review => (
+                      <div key={review.id} className="border-b border-gray-100 pb-4">
+                        <div className="flex items-center mb-2">
+                          <img src={review.userAvatar} alt={review.userName} className="w-10 h-10 rounded-full mr-3" />
+                          <div>
+                            <p className="font-medium text-gray-900">{review.userName}</p>
+                            <div className="flex items-center">
+                              {[...Array(5)].map((_, i) => (
+                                <Star
+                                  key={i}
+                                  className={`w-4 h-4 ${
+                                    i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <span className="ml-auto text-sm text-gray-500">
+                            {format(parseISO(review.createdAt), 'MM月dd日')}
+                          </span>
+                        </div>
+                        <p className="text-gray-700">{review.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
                 {activity.status === 'finished' && user && (
                   <button
                     onClick={() => setShowReviewModal(true)}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    写评价
+                    {reviews.some(r => r.userId === user.id) ? '修改评价' : '写评价'}
                   </button>
                 )}
               </div>
