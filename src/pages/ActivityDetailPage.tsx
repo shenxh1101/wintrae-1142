@@ -43,6 +43,11 @@ export default function ActivityDetailPage() {
   const userRegistration = user
     ? registrations.find(r => r.activityId === Number(id) && r.userId === user.id)
     : null;
+  
+  const isActivityEnded = activity.endTime 
+    ? new Date() > new Date(activity.endTime)
+    : new Date() > new Date(activity.startTime);
+  const showReviewSection = activity.status === 'finished' || isActivityEnded;
 
   if (!activity) {
     return (
@@ -270,7 +275,7 @@ export default function ActivityDetailPage() {
               </div>
             )}
 
-            {(reviews.length > 0 || activity.status === 'finished') && (
+            {(reviews.length > 0 || showReviewSection) && (
               <div className="bg-white rounded-xl shadow-md p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center">
@@ -346,7 +351,7 @@ export default function ActivityDetailPage() {
                   </div>
                 )}
                 
-                {activity.status === 'finished' && user && (
+                {showReviewSection && user && (
                   <div className="mt-6 pt-6 border-t border-gray-200">
                     <button
                       onClick={() => setShowReviewModal(true)}

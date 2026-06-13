@@ -202,14 +202,15 @@ export const useStore = create<AppState>()(
         if (firstWaitlist) {
           const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
 
-          const updatedWaitlists = waitlists.map(w => {
-            if (w.activityId !== activityId) return w;
-            if (w.id === firstWaitlist.id) return w;
-            return {
-              ...w,
-              position: w.position - 1,
-            };
-          });
+          const updatedWaitlists = waitlists
+            .filter(w => !(w.activityId === activityId && w.id === firstWaitlist.id))
+            .map(w => {
+              if (w.activityId !== activityId) return w;
+              return {
+                ...w,
+                position: w.position - 1,
+              };
+            });
 
           const newRegistration: Registration = {
             id: Date.now(),
@@ -356,14 +357,15 @@ export const useStore = create<AppState>()(
 
         if (firstWaitlist) {
           const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
-          const updatedWaitlists = waitlists.map(w => {
-            if (w.activityId !== leaveRequest.activityId) return w;
-            if (w.id === firstWaitlist.id) return w;
-            return {
-              ...w,
-              position: w.position - 1,
-            };
-          });
+          const updatedWaitlists = waitlists
+            .filter(w => !(w.activityId === leaveRequest.activityId && w.id === firstWaitlist.id))
+            .map(w => {
+              if (w.activityId !== leaveRequest.activityId) return w;
+              return {
+                ...w,
+                position: w.position - 1,
+              };
+            });
 
           const newRegistration: Registration = {
             id: Date.now(),

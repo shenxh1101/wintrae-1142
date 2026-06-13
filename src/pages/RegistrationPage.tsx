@@ -46,10 +46,12 @@ export default function RegistrationPage() {
   const activityRegistrations = registrations.filter(r => r.activityId === selectedActivityId);
   const waitlists = getWaitlistsByActivity(selectedActivityId);
   const activityLeaveRequests = leaveRequests.filter(lr => lr.activityId === selectedActivityId);
-
+  
   const checkedInCount = activityRegistrations.filter(r => r.status === 'checked_in').length;
   const notCheckedInCount = activityRegistrations.filter(r => r.status === 'registered').length;
   const leaveApprovedCount = activityRegistrations.filter(r => r.status === 'leave_approved').length;
+  
+  const totalRegistrationCount = activityRegistrations.length;
 
   const timeSeriesData = useMemo(() => {
     if (!selectedActivity) return [];
@@ -59,27 +61,29 @@ export default function RegistrationPage() {
       end: new Date(),
     });
     
-    const activityRegDate = parseISO(selectedActivity.startTime);
-    const totalDays = differenceInDays(new Date(), activityRegDate);
-    const activityDayCount = Math.max(1, totalDays);
-    
     const sortedRegistrations = [...activityRegistrations].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     
-    return dates.map((date, index) => {
-      const dayNumber = index + 1;
-      const progressRatio = dayNumber / 14;
-      
+    const sortedWaitlists = [...waitlists].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    
+    return dates.map((date) => {
       const regInPeriod = sortedRegistrations.filter(r => {
         const regDate = parseISO(r.createdAt);
         return regDate <= date;
       });
       
+      const waitlistInPeriod = sortedWaitlists.filter(w => {
+        const waitlistDate = parseISO(w.createdAt);
+        return waitlistDate <= date;
+      });
+      
       const regCount = regInPeriod.length;
       const checkinCount = regInPeriod.filter(r => r.status === 'checked_in').length;
       const leaveCount = regInPeriod.filter(r => r.status === 'leave_approved').length;
-      const waitlistCount = Math.floor(waitlists.length * progressRatio * 0.8);
+      const waitlistCount = waitlistInPeriod.length;
       
       return {
         date: format(date, 'MM-dd'),
@@ -97,7 +101,7 @@ export default function RegistrationPage() {
     
     const registrationSection = [
       `═══════════════════════════════════════════════════════`,
-      `  正式报名名单 (${activityRegistrations.length}人)`,
+      `  正式报名名单 (${totalRegistrationCount}人)`,
       `═══════════════════════════════════════════════════════`,
       '序号,姓名,学号,报名时间,签到状态,签到时间',
       ...activityRegistrations.map((r, index) => {
@@ -132,7 +136,7 @@ export default function RegistrationPage() {
       `  统计汇总`,
       `═══════════════════════════════════════════════════════`,
       `活动名称: ${selectedActivity?.title || '未知活动'}`,
-      `报名人数: ${activityRegistrations.length}人`,
+      `报名人数: ${totalRegistrationCount}人`,
       `已签到: ${checkedInCount}人`,
       `未签到: ${notCheckedInCount}人`,
       `已请假: ${leaveApprovedCount}人`,
@@ -172,7 +176,7 @@ export default function RegistrationPage() {
   };
 
   const chartData = [
-    { name: '报名人数', count: activityRegistrations.length, fill: '#3b82f6' },
+    { name: '报名人数', count: totalRegistrationCount, fill: '#3b82f6' },
     { name: '已签到', count: checkedInCount, fill: '#10b981' },
     { name: '未签到', count: notCheckedInCount, fill: '#f97316' },
     { name: '已请假', count: leaveApprovedCount, fill: '#8b5cf6' },
@@ -206,7 +210,7 @@ export default function RegistrationPage() {
                 <Users className="w-8 h-8 text-blue-600 mr-3" />
                 <div>
                   <p className="text-sm text-gray-600">报名人数</p>
-                  <p className="text-2xl font-bold text-gray-900">{activityRegistrations.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalRegistrationCount}</p>
                 </div>
               </div>
             </div>
@@ -261,7 +265,7 @@ export default function RegistrationPage() {
                   : 'border-transparent text-gray-600 hover:text-gray-900'
               }`}
             >
-              报名名单 ({activityRegistrations.length})
+              报名名单 ({totalRegistrationCount})
             </button>
             <button
               onClick={() => setActiveTab('statistics')}
@@ -398,7 +402,7 @@ export default function RegistrationPage() {
                   </tbody>
                 </table>
 
-                {activityRegistrations.length === 0 && (
+                {totalRegistrationCount === 0 && (
                   <div className="p-12 text-center">
                     <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-500">暂无报名人员</p>
@@ -478,31 +482,31 @@ export default function RegistrationPage() {
                     <p className="text-sm text-gray-600">报名率</p>
                     <p className="text-2xl font-bold text-blue-600">
                       {selectedActivity?.quota
-                        ? Math.round((activityRegistrations.length / selectedActivity.quota) * 100)
+                        ? Math.round((totalRegistrationCount / selectedActivity.quota) * 100)
                         : 0}%
                     </p>
                   </div>
                   <div className="p-4 bg-green-50 rounded-lg">
                     <p className="text-sm text-gray-600">签到率</p>
                     <p className="text-2xl font-bold text-green-600">
-                      {activityRegistrations.length > 0
-                        ? Math.round((checkedInCount / activityRegistrations.length) * 100)
+                      {totalRegistrationCount > 0
+                        ? Math.round((checkedInCount / totalRegistrationCount) * 100)
                         : 0}%
                     </p>
                   </div>
                   <div className="p-4 bg-orange-50 rounded-lg">
                     <p className="text-sm text-gray-600">未签到率</p>
                     <p className="text-2xl font-bold text-orange-600">
-                      {activityRegistrations.length > 0
-                        ? Math.round((notCheckedInCount / activityRegistrations.length) * 100)
+                      {totalRegistrationCount > 0
+                        ? Math.round((notCheckedInCount / totalRegistrationCount) * 100)
                         : 0}%
                     </p>
                   </div>
                   <div className="p-4 bg-purple-50 rounded-lg">
                     <p className="text-sm text-gray-600">请假率</p>
                     <p className="text-2xl font-bold text-purple-600">
-                      {activityRegistrations.length > 0
-                        ? Math.round((leaveApprovedCount / activityRegistrations.length) * 100)
+                      {totalRegistrationCount > 0
+                        ? Math.round((leaveApprovedCount / totalRegistrationCount) * 100)
                         : 0}%
                     </p>
                   </div>
@@ -522,7 +526,7 @@ export default function RegistrationPage() {
                   <div className="p-4 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-600">名额状态</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {activityRegistrations.length}/{selectedActivity?.quota || 0}
+                      {totalRegistrationCount}/{selectedActivity?.quota || 0}
                     </p>
                   </div>
                 </div>
