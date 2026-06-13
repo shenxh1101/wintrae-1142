@@ -194,22 +194,22 @@ export const useStore = create<AppState>()(
         if (!user) return;
 
         const activity = activities.find(a => a.id === activityId);
-        const firstWaitlist = waitlists
+        const activityWaitlists = waitlists
           .filter(w => w.activityId === activityId)
-          .sort((a, b) => a.position - b.position)[0];
-
-        let newNotifications = [...notifications];
-        let updatedWaitlists = [...waitlists];
+          .sort((a, b) => a.position - b.position);
+        const firstWaitlist = activityWaitlists[0];
 
         if (firstWaitlist) {
           const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
 
-          updatedWaitlists = waitlists
-            .filter(w => w.id !== firstWaitlist.id)
-            .map(w => ({
+          const updatedWaitlists = waitlists.map(w => {
+            if (w.activityId !== activityId) return w;
+            if (w.id === firstWaitlist.id) return w;
+            return {
               ...w,
               position: w.position - 1,
-            }));
+            };
+          });
 
           const newRegistration: Registration = {
             id: Date.now(),
@@ -229,7 +229,7 @@ export const useStore = create<AppState>()(
             ],
             activities: activities.map(a =>
               a.id === activityId
-                ? { ...a, isRegistered: firstWaitlist.userId === a.id ? true : a.isRegistered }
+                ? { ...a, isRegistered: true }
                 : a
             ),
             waitlists: updatedWaitlists,
@@ -243,7 +243,7 @@ export const useStore = create<AppState>()(
                 isRead: false,
                 createdAt: new Date().toISOString(),
               },
-              ...newNotifications,
+              ...notifications,
             ],
           });
 
@@ -336,11 +336,12 @@ export const useStore = create<AppState>()(
           r => r.activityId === leaveRequest.activityId && r.userId === leaveRequest.userId
         );
 
-        const firstWaitlist = waitlists
+        const activityWaitlists = waitlists
           .filter(w => w.activityId === leaveRequest.activityId)
-          .sort((a, b) => a.position - b.position)[0];
+          .sort((a, b) => a.position - b.position);
+        const firstWaitlist = activityWaitlists[0];
 
-        let newNotifications = [
+        const newNotifications: Notification[] = [
           {
             id: Date.now(),
             userId: leaveRequest.userId,
@@ -355,12 +356,14 @@ export const useStore = create<AppState>()(
 
         if (firstWaitlist) {
           const promotedUser = mockUsers.find(u => u.id === firstWaitlist.userId);
-          const updatedWaitlists = waitlists
-            .filter(w => w.id !== firstWaitlist.id)
-            .map(w => ({
+          const updatedWaitlists = waitlists.map(w => {
+            if (w.activityId !== leaveRequest.activityId) return w;
+            if (w.id === firstWaitlist.id) return w;
+            return {
               ...w,
               position: w.position - 1,
-            }));
+            };
+          });
 
           const newRegistration: Registration = {
             id: Date.now(),
@@ -383,7 +386,7 @@ export const useStore = create<AppState>()(
             ],
             activities: activities.map(a =>
               a.id === leaveRequest.activityId
-                ? { ...a, signedCount: Math.max(0, a.signedCount - 1) }
+                ? { ...a }
                 : a
             ),
             waitlists: updatedWaitlists,

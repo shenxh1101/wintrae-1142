@@ -54,34 +54,43 @@ export default function RegistrationPage() {
   const timeSeriesData = useMemo(() => {
     if (!selectedActivity) return [];
     
-    const startDate = parseISO(selectedActivity.startTime);
-    const daysUntilStart = differenceInDays(startDate, new Date());
-    const daysBack = Math.min(14, Math.max(3, Math.abs(daysUntilStart)));
-    
     const dates = eachDayOfInterval({
-      start: subDays(new Date(), daysBack),
+      start: subDays(new Date(), 13),
       end: new Date(),
     });
     
+    const activityRegDate = parseISO(selectedActivity.startTime);
+    const totalDays = differenceInDays(new Date(), activityRegDate);
+    const activityDayCount = Math.max(1, totalDays);
+    
+    const sortedRegistrations = [...activityRegistrations].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    
     return dates.map((date, index) => {
-      const dayProgress = index / dates.length;
-      const registrationGrowth = Math.floor(activityRegistrations.length * dayProgress * (0.8 + Math.random() * 0.4));
-      const checkinGrowth = activity.status === 'finished' || selectedActivity.signedCount > 0
-        ? Math.floor(checkedInCount * dayProgress * (0.7 + Math.random() * 0.3))
-        : 0;
-      const leaveGrowth = Math.floor(leaveApprovedCount * dayProgress * (0.5 + Math.random() * 0.5));
-      const waitlistGrowth = Math.floor(waitlists.length * dayProgress * (0.6 + Math.random() * 0.4));
+      const dayNumber = index + 1;
+      const progressRatio = dayNumber / 14;
+      
+      const regInPeriod = sortedRegistrations.filter(r => {
+        const regDate = parseISO(r.createdAt);
+        return regDate <= date;
+      });
+      
+      const regCount = regInPeriod.length;
+      const checkinCount = regInPeriod.filter(r => r.status === 'checked_in').length;
+      const leaveCount = regInPeriod.filter(r => r.status === 'leave_approved').length;
+      const waitlistCount = Math.floor(waitlists.length * progressRatio * 0.8);
       
       return {
         date: format(date, 'MM-dd'),
         fullDate: format(date, 'yyyy-MM-dd'),
-        报名人数: registrationGrowth,
-        已签到: checkinGrowth,
-        已请假: leaveGrowth,
-        候补中: waitlistGrowth,
+        报名人数: regCount,
+        已签到: checkinCount,
+        已请假: leaveCount,
+        候补中: waitlistCount,
       };
     });
-  }, [selectedActivity, activity, activityRegistrations, checkedInCount, leaveApprovedCount, waitlists]);
+  }, [selectedActivity, activityRegistrations, waitlists]);
 
   const handleExport = () => {
     const exportDate = format(new Date(), 'yyyy-MM-dd HH:mm:ss');

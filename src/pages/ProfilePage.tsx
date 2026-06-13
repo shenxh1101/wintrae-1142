@@ -16,7 +16,7 @@ interface ActivityRecord {
   coverImage: string;
   location: string;
   startTime: string;
-  status: 'registered' | 'checked_in' | 'leave_approved' | 'waitlist' | 'leave_pending';
+  status: 'registered' | 'checked_in' | 'leave_approved' | 'waitlist' | 'leave_pending' | 'absent';
   statusText: string;
   statusColor: string;
   registeredAt: string;
@@ -73,10 +73,12 @@ export default function ProfilePage() {
         status: r.status,
         statusText: r.status === 'registered' ? '已报名' :
                    r.status === 'checked_in' ? '已签到' :
-                   r.status === 'leave_approved' ? '已请假' : '未知',
+                   r.status === 'leave_approved' ? '已请假' :
+                   r.status === 'absent' ? '缺席' : '未知',
         statusColor: r.status === 'registered' ? 'blue' :
                     r.status === 'checked_in' ? 'green' :
-                    r.status === 'leave_approved' ? 'orange' : 'gray',
+                    r.status === 'leave_approved' ? 'orange' :
+                    r.status === 'absent' ? 'red' : 'gray',
         registeredAt: r.createdAt,
       };
     });
